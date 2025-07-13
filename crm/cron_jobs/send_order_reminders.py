@@ -1,54 +1,38 @@
-#!/usr/bin/env python3
-"""
-Send daily order reminders via GraphQL.
-
-Runs from cron every day at 08:00.
-Requires: gql[requests]  (pip install gql[requests])
-"""
-
-import os
-import sys
-from datetime import datetime, timedelta, timezone
-from gql import Client, gql
+from gql import gql, Client
 from gql.transport.requests import RequestsHTTPTransport
+from datetime import datetime, timedelta
 
-GRAPHQL_URL = "http://localhost:8000/graphql"
-LOG_FILE = "/tmp/order_reminders_log.txt"
-
-# Build the date range filter
-since = datetime.now(timezone.utc) - timedelta(days=7)
-
+# Define transport
 transport = RequestsHTTPTransport(
-    url=GRAPHQL_URL,
-    verify=True,
+    url="http://localhost:8000/graphql",
+    verify=False,
     retries=3,
-    timeout=10,
 )
 
-client = Client(transport=transport, fetch_schema_from_transport=False)
+client = Client(transport=transport, fetch_schema_from_transport=True)
 
-query = gql("""
-query GetPendingOrders($since: DateTime!) {
-  orders(orderDate_Gte: $since) {
+# Create the query
+one_week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+query = gql(f"""
+{{
+  orders(orderDate_Gte: "{one_week_ago}") {{
     id
-    customer {
+    customer {{
       email
-    }
-  }
-}
+    }}
+  }}
+}}
 """)
 
+# Execute and log results
 try:
-    result = client.execute(query, variable_values={"since": since.isoformat()})
+    result = client.execute(query)
     orders = result.get("orders", [])
 
-    with open(LOG_FILE, "a") as log:
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open("/tmp/order_reminders_log.txt", "a") as log:
         for order in orders:
-            log.write(f"{ts} - Order #{order['id']} - {order['customer']['email']}\n")
-
+            log.write(f"{now} - Order ID: {order['id']}, Email: {order['customer']['email']}\n")
     print("Order reminders processed!")
-except Exception as exc:
-    # Any failure exits non-zero so cron can alert via mail.
-    print(f"Error: {exc}", file=sys.stderr)
-    sys.exit(1)
+except Exception as e:
+    print("Error:", e)
