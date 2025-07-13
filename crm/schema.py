@@ -5,6 +5,7 @@ from .models import Customer, Product, Order
 from .filters import CustomerFilter, ProductFilter, OrderFilter
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
+from django.db.models import F
 
 
 # FILTER INPUT TYPES
@@ -266,3 +267,17 @@ class Mutation(graphene.ObjectType):
     bulk_create_customers = BulkCreateCustomers.Field()
     create_product = CreateProduct.Field()
     create_order = CreateOrder.Field()
+
+class UpdateLowStockProducts(graphene.Mutation):
+    updated_products = graphene.List(ProductType)
+    message = graphene.String()
+
+    def mutate(self, info):
+        low_stock_products = Product.objects.filter(stock__lt=10)
+        count = low_stock_products.count()
+        low_stock_products.update(stock=F('stock') + 10)
+        updated = Product.objects.filter(stock__gte=10)
+        message = f"Restocked {count} low-stock product(s)."
+        return UpdateLowStockProducts(updated_products=updated, message=message)
+
+Mutation.update_low_stock_products = UpdateLowStockProducts.Field()
